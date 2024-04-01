@@ -19,6 +19,7 @@ import (
 	"github.com/rootless-containers/rootlesskit/pkg/network/lxcusernic"
 	"github.com/rootless-containers/rootlesskit/pkg/network/slirp4netns"
 	"github.com/rootless-containers/rootlesskit/pkg/network/vpnkit"
+	"github.com/rootless-containers/rootlesskit/pkg/network/none"
 	"github.com/rootless-containers/rootlesskit/pkg/parent"
 	"github.com/rootless-containers/rootlesskit/pkg/port/builtin"
 	"github.com/rootless-containers/rootlesskit/pkg/port/portutil"
@@ -73,7 +74,7 @@ See https://rootlesscontaine.rs/getting-started/common/ .
 		}, CategoryState),
 		Categorize(&cli.StringFlag{
 			Name:  "net",
-			Usage: "network driver [host, slirp4netns, vpnkit, lxc-user-nic(experimental)]",
+			Usage: "network driver [host, none, slirp4netns, vpnkit, lxc-user-nic(experimental)]",
 			Value: "host",
 		}, CategoryNetwork),
 		Categorize(&cli.StringFlag{
@@ -339,6 +340,26 @@ func createParentOpt(clicontext *cli.Context, pipeFDEnvKey, stateDirEnvKey, pare
 		if ifname != "" {
 			return opt, errors.New("ifname cannot be specified for --net=host")
 		}
+	case "none":
+		if mtu != 0 {
+			logrus.Warnf("unsupported mtu for --net=none: %d", mtu)
+		}
+		if ipnet != nil {
+			return opt, errors.New("custom cidr is not supported for --net=none")
+		}
+		if ifname != "" {
+			return opt, errors.New("ifname cannot be specified for --net=none")
+		}
+		switch portDriver := clicontext.String("port-driver"); portDriver {
+		case "none":
+			// NOP
+		default:
+			return opt, errors.New("network \"none\" requires port driver \"none\"")
+		}
+		opt.NetworkDriver, err = none.NewParentDriver()
+		if err != nil {
+			return opt, err
+		}
 	case "slirp4netns":
 		binary := clicontext.String("slirp4netns-binary")
 		if _, err := exec.LookPath(binary); err != nil {
@@ -499,6 +520,8 @@ func createChildOpt(clicontext *cli.Context, pipeFDEnvKey string, targetCmd []st
 	}
 	switch s := clicontext.String("net"); s {
 	case "host":
+		// NOP
+	case "none":
 		// NOP
 	case "slirp4netns":
 		opt.NetworkDriver = slirp4netns.NewChildDriver()
